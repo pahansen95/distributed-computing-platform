@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "distributed-computing-platform"
+version = "0.1.0"
+description = ""
+authors = ["Peter <mail@peterhansen.io>"]
+license = "MIT"
+readme = "README.md"
+packages = []
+
+[tool.poetry.dependencies]
+python = "^3.10"
+semver = "^2.13.0"
+aiohttp = "^3.8.3"
+frozendict = "^2.3.4"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
