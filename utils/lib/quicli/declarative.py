@@ -1,6 +1,8 @@
 from dataclasses import dataclass, KW_ONLY, field
-from typing import TypeVar, Type, Generic, Callable, Ellipsis, Any
-from types import NoneType
+from typing import TypeVar, Type, Generic, Callable, Any
+from types import NoneType, EllipsisType
+
+from . import _logger
 
 T = TypeVar('T')
 _regex_db = {
@@ -51,7 +53,7 @@ class PositionalArgumentDef(ArgumentDef[T]):
     - A count, which is the number of args that will be consumed. By default this is 1. Specifying Ellipsis will consume all remaining args.
   """
   _: KW_ONLY
-  count: int | Ellipsis = 1
+  count: int | EllipsisType = 1
 
 @dataclass(frozen=True)
 class KeywordArgumentDef(ArgumentDef[T]):
