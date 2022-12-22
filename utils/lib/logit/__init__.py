@@ -1,3 +1,6 @@
 
 class LogStream:
   ...
+
+class BlackHole(LogStream):
+  ...
