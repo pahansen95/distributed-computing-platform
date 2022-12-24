@@ -6,5 +6,7 @@ _logger: logit.LogStream = logit.BlackHole()
 class Error(Exception):
   pass
 
+class RuntimeError(Error):
+  pass
 
 from .declarative import *
