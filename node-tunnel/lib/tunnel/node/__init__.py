@@ -1,12 +1,16 @@
 
 import asyncio
+import aiohttp
+import ssl
+import uri
 import contextlib
+import pathlib
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any, Iterable, AsyncGenerator
 import enum
 import base64
 
-from ..common import NetworkPeer
+from ..common import NetworkPeer, KubernetesClient, KubernetesClientSession
 from .. import _logger
 
 async def _asyncio_gather_filter_exceptions(
@@ -64,17 +68,43 @@ async def wireguard_add_peer(
   ...
 
 @contextlib.asynccontextmanager
-async def controller_authenticate() -> "ControllerSession":
+async def controller_authenticate(
+  client_name: str,
+  controller_uri: str,
+  client_private_key: str, # Path to the private key of the client certificate
+  client_certificate: str, # Path to the client certificate
+  certificate_authority: str, # Path to the certificate authority
+  session_duration: int, # In seconds
+) -> AsyncGenerator["ControllerClientSession", None]:
+  client = ControllerClient(
+    name=client_name,
+    controller_uri=controller_uri,
+    private_key=client_private_key,
+    certificate=client_certificate,
+    certificate_authority=certificate_authority,
+  )
+  async with client.authenticate(
+    session_duration=session_duration,
+  ) as session:
+    yield session
+
+@dataclass(frozen=True)
+class NodeClient(KubernetesClient):
+  ...
+
+@dataclass(frozen=True)
+class NodeClientSession(KubernetesClientSession):
   ...
 
 @dataclass(frozen=True)
 class NodeTunnel:
   name: str
-  addresses: tuple[int] | None # A tuple of IP addresses as integers
+  addresses: tuple[bytes] | None # A tuple of IP addresses as packed bytes
   private_key: bytes | None
   public_key: bytes | None
   seeding_peers: tuple[NetworkPeer] | None
   heartbeat_period: int # In seconds
+  client: NodeClient
 
   async def create(
     self,
@@ -83,7 +113,7 @@ class NodeTunnel:
   ) -> "NodeTunnel":
     # Type Hints
     seeding_peers: Iterable[NetworkPeer] # NetworkPeers to seed the WireGuard interface with
-    addresses: tuple[int] # IP addresses to assign to the WireGuard interface
+    addresses: tuple[bytes] # IP addresses to assign to the WireGuard interface as packed bytes
     private_key: bytes
     public_key: bytes
 
@@ -94,25 +124,34 @@ class NodeTunnel:
       private_key, public_key = await wireguard_generate_keypair()
 
     # Authenticate w/ the controller
-    async with controller_authenticate() as controller_session:
+    async with controller_authenticate(
+      client_name=self.name,
+      controller_uri=uri.URI('https://controller.example.com'),
+      client_private_key=pathlib.Path('/etc/node-tunnel/client.key'),
+      client_certificate=pathlib.Path('/etc/node-tunnel/client.crt'),
+      certificate_authority=pathlib.Path('/etc/node-tunnel/ca.crt'),
+      session_duration=5*60,
+    ) as controller_session:
       await controller_session.register_node(
-        name=self.name,
         public_key=base64.b64encode(self.public_key).decode('utf-8'),
       )
       seeding_peers = self.seeding_peers
       if not seeding_peers:
-        seeding_pairs = await controller_session.get_seeding_pairs()
-      _logger.info(f"Interface {self.name} will be seeded with peers: {seeding_pairs}")
+        seeding_peers = tuple(await controller_session.get_seeding_peers())
+      _logger.info(f"Interface {self.name} will be seeded with peers: {seeding_peers}")
       address_leases = self.addresses
       if not address_leases:
         address_leases = tuple(await _asyncio_gather_filter_exceptions(
           f'Failed to lease IP address for interface {self.name}',
-          controller_session.ipam_allocate_address(),
+          controller_session.ipam_request_address_allocation(),
         ))
       addresses = _asyncio_gather_filter_exceptions(
         f'Failed to lease IP address for interface {self.name}',
         (
-          controller_session.ipam_lease_address(ip_addr)
+          controller_session.ipam_request_address_lease(
+            ip_addr,
+            30*24*60*60, # 30 days
+          )
           for ip_addr in address_leases
         )
       )
@@ -148,7 +187,7 @@ class NodeTunnel:
           keepalive=self.heartbeat_period,
           allowed_ips=[(addr, 0xffffffff) for addr in peer.addresses], # On setup allow only traffic to/from the peer
         )
-        for peer in seeding_pairs
+        for peer in seeding_peers
       )
     )
 
@@ -159,7 +198,7 @@ class NodeTunnel:
       addresses=tuple(addresses),
       private_key=private_key,
       public_key=public_key,
-      seeding_peers=tuple(seeding_pairs),
+      seeding_peers=tuple(seeding_peers),
       heartbeat_period=self.heartbeat_period,
     )
   
@@ -182,4 +221,4 @@ class NodeTunnel:
     *_args,
     **_kwargs,
   ) -> "NodeTunnel":
-    
+    ...

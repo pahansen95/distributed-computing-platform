@@ -1,0 +1,25 @@
+# Development Notes
+
+- Node Tunnels
+  - Provides a Mesh Network of upstream & downstream peers via WireGuard
+    - Direct access to downstream peers is made via an upstream peer
+      - A set of "upstream" Network Peers will need to be maintained in order to seed downstream network peers.
+        - Pods or VMs?
+    - For now, P2P communication between downstream peers is blocked
+  - Kubernetes...
+    - provides the api & authentication boilerplate
+    - replaces a database using Custom Resources for the initial MVP
+    - use kubectl to provide a proxy (via unix socket)
+  - Node Tunnel Client...
+    - Will authenticate to the Kubernetes API via TLS Client Certificates
+    - Manages state of it's NetworkPeer Custom 
+    - Support IPv4/v6
+  - Node Tunnel Controller...
+    - Implements a Kubernetes Controller to manage state of remaining Custom Resources
+    - Will authenticate to the Kubernetes API via Service Account Token
+      - Is deployed on the same kubernetes cluster in the same namespace as the CRs
+    - Single Instance deployment to simplify design; no consensus yet.
+    - Provide some basic networking metadata functionality
+      - IPAM
+        - IPv4/v6 Address Allocation
+        - IPv4/v6 Address Leasing
